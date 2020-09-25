@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { response } = require('express');
+const e = require('express');
 const CancelToken = axios.CancelToken;
 const source = CancelToken.source();
 const config = axios.create({
@@ -21,12 +22,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 const PORT = process.env.PORT || 3000;
-
+process.chdir(path.join(`../${process.env.PARENT_DIRECTORY}`));
 //Route to filewatching folder
-const watcher = chokidar.watch(path.join(__dirname, '../file_watching'), {
+const watcher = chokidar.watch(process.cwd(), {
   awaitWriteFinish: true,
 });
-
 const generateChecksum = (str, alg, encoding) =>
   crypto
     .createHash(alg || 'md5')
@@ -35,14 +35,14 @@ const generateChecksum = (str, alg, encoding) =>
 
 const archiveFile = ({ PARENT_DIRECTORY, SUB_DIRECTORY, FOLDER }) => {
   if (FOLDER !== 'archive') {
-    fs.access(
-      path.join(PARENT_DIRECTORY, SUB_DIRECTORY, 'archive'),
-
-      (err, dir) => {
-        if (err) console.log(err);
-        console.log(dir);
+    fs.access(path.join(SUB_DIRECTORY, 'archive', '2020'), err => {
+      // Check if archive has year/month directory with current date
+      // If not create the directory and move the file
+      if (err) console.log(err);
+      else {
+        console.log('exsits');
       }
-    );
+    });
   }
 };
 const postRequest = route => {
@@ -94,6 +94,8 @@ watcher.on('change', (p, stats) => {
 });
 
 const watchedPaths = watcher.getWatched();
+
+console.log(watchedPaths);
 
 app.get('/', (req, res) => console.log('hey'));
 
