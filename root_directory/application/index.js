@@ -6,8 +6,7 @@ const chokidar = require('chokidar');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { response } = require('express');
-const e = require('express');
+const { get } = require('https');
 const CancelToken = axios.CancelToken;
 const source = CancelToken.source();
 const config = axios.create({
@@ -32,19 +31,80 @@ const generateChecksum = (str, alg, encoding) =>
     .createHash(alg || 'md5')
     .update(str, 'utf8')
     .digest(encoding || 'hex');
-
-const archiveFile = ({ PARENT_DIRECTORY, SUB_DIRECTORY, FOLDER }) => {
+const moveFileLocation = (oldPath, newPath) =>
+  fs.rename(oldPath, newPath, err => {
+    if (err) throw err;
+    console.log('File Move Successful');
+  });
+const getUserDate = () => {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  const today = new Date(Date.now());
+  const date = { year: today.getFullYear(), month: months[today.getMonth()] };
+  return date;
+};
+const archiveFile = async ({ SUB_DIRECTORY, FOLDER, FILENAME }) => {
+  const { year, month } = getUserDate();
   if (FOLDER !== 'archive') {
-    fs.access(path.join(SUB_DIRECTORY, 'archive', '2020'), err => {
-      // Check if archive has year/month directory with current date
-      // If not create the directory and move the file
-      if (err) console.log(err);
-      else {
-        console.log('exsits');
+    console.log(FOLDER);
+
+    fs.access(
+      path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
+      err => {
+        if (err) {
+          try {
+            fs.mkdir(
+              path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
+              { recursive: true },
+              err => {
+                if (err) throw err;
+                fs.rename(
+                  path.join(SUB_DIRECTORY, FOLDER, FILENAME),
+                  path.join(
+                    SUB_DIRECTORY,
+                    'archive',
+                    year.toString(),
+                    month,
+                    FILENAME
+                  ),
+                  err => {
+                    if (err) throw err;
+                  }
+                );
+              }
+            );
+          } catch (err) {
+            alert('Sorry something went wrong, please try again.');
+            console.log(err, 'from mkdir');
+          }
+        }
+        fs.rename(
+          path.join(SUB_DIRECTORY, FOLDER, FILENAME),
+          path.join(SUB_DIRECTORY, 'archive', year.toString(), month, FILENAME),
+          err => {
+            if (err) {
+              console.log(err);
+            }
+            console.log('Rename successful');
+          }
+        );
       }
-    });
+    );
   }
 };
+
 const postRequest = route => {
   app.post(`/${route}/results`, async (req, res) => {
     const { path, PARENT_DIRECTORY, SUB_DIRECTORY, checksum, stats } = req.body;
@@ -73,9 +133,12 @@ const makeRequest = async (route, method, data) => {
     }
 
     return response.data;
-  } catch (err) {}
+  } catch (err) {
+    console.log(err);
+  }
 };
 watcher.on('change', (p, stats) => {
+  console.log(path.basename(p));
   const TARGET_DIRECTORY = p
     .split(path.sep)
     .splice(p.split(path.sep).indexOf(process.env.PARENT_DIRECTORY));
@@ -86,6 +149,7 @@ watcher.on('change', (p, stats) => {
     PARENT_DIRECTORY: TARGET_DIRECTORY[0],
     SUB_DIRECTORY: TARGET_DIRECTORY[1],
     FOLDER: TARGET_DIRECTORY[2],
+    FILENAME: path.basename(p),
     checksum: generateChecksum(fileData),
     stats,
   };
@@ -94,8 +158,6 @@ watcher.on('change', (p, stats) => {
 });
 
 const watchedPaths = watcher.getWatched();
-
-console.log(watchedPaths);
 
 app.get('/', (req, res) => console.log('hey'));
 
