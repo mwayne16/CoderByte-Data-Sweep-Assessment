@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
 import 'dotenv/config';
+import { error } from 'console';
 const DATE = new Date(Date.now());
 
 const CancelToken = axios.CancelToken;
@@ -39,12 +40,16 @@ const generateChecksum = (str, alg, encoding) =>
 const moveFileLocation = (oldPath, newPath) =>
   fs.rename(oldPath, newPath, err => {
     if (err) throw err;
-    console.log('File Move Successful');
   });
+const handleExceptions = () => null;
+
 // Creates file for exceptions and logs
 // Note: if file already exsists, the content will be overwritten
 
 const createFile = async (filePath, extensionType, fileContent) => {
+  typeof fileContent === 'string'
+    ? null
+    : (fileContent = JSON.stringify(fileContent));
   const stamp = DATE.toISOString().replace(/[:.]/g, '');
   const ext = extensionType;
   const fileName = `${stamp}${ext}`;
@@ -64,11 +69,6 @@ const createFile = async (filePath, extensionType, fileContent) => {
     console.log(err);
   }
 };
-
-const exceptionHandler = (errorMessage, p) => {};
-
-// data for handler not being posted to file. Possible .ext issue
-exceptionHandler('bad request there sir', '1000000/exceptions');
 
 const getUserDate = () => {
   const months = [
@@ -101,52 +101,64 @@ const archiveFile = async ({ SUB_DIRECTORY, FOLDER, FILENAME }) => {
               path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
               { recursive: true },
               err => {
-                if (err) throw err;
-                fs.rename(
-                  path.join(SUB_DIRECTORY, FOLDER, FILENAME),
-                  path.join(
-                    SUB_DIRECTORY,
-                    'archive',
-                    year.toString(),
-                    month,
-                    FILENAME
-                  ),
-                  err => {
-                    if (err) throw err;
-                  }
-                );
+                if (err)
+                  moveFileLocation(
+                    path.join(SUB_DIRECTORY, FOLDER, FILENAME),
+                    path.join(
+                      SUB_DIRECTORY,
+                      'archive',
+                      year.toString(),
+                      month,
+                      FILENAME
+                    )
+                  );
               },
               console.log('New directory added by system')
             );
           } catch (err) {
             alert('Sorry something went wrong, please try again.');
-            console.log(err, 'from mkdir');
           }
         }
-        fs.rename(
+        moveFileLocation(
           path.join(SUB_DIRECTORY, FOLDER, FILENAME),
-          path.join(SUB_DIRECTORY, 'archive', year.toString(), month, FILENAME),
-          err => {
-            if (err) {
-              console.log(err);
-            }
-            console.log('Rename successful');
-          }
+          path.join(SUB_DIRECTORY, 'archive', year.toString(), month, FILENAME)
         );
       }
     );
   }
 };
-
 const postRequest = route => {
   app.post(`/${route}/results`, async (req, res) => {
-    const { path, PARENT_DIRECTORY, SUB_DIRECTORY, checksum, stats } = req.body;
+    const { sentPath, PARENT_DIRECTORY, SUB_DIRECTORY, checksum, stats } =
+      req.body;
     //Compare sent checksum to system
+    console.log(sentPath);
     try {
-      if (checksum === generateChecksum(fs.readFileSync(path, 'utf-8')))
+      if (checksum !== generateChecksum(fs.readFileSync(sentPath, 'utf-8')))
         res.status(200).json({ status: 'success', data: { checksum } });
+      else {
+        moveFileLocation(
+          sentPath,
+          path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath))
+        );
+        // fs.appendFile(
+        //   path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath)),
+        //   JSON.stringify({ stats, checksum }),
+        //   err => {
+        //     if (err) console.log(err);
+        //   }
+        // );
+      }
     } catch (err) {
-      res.status(404).json({ status: 'fail', data: { err } });
+      console.log(err);
+      // res.status(404).json({ status: 'fail', data: { err } });
+
+      // createFile(
+      //   `${SUB_DIRECTORY}/exceptions`,
+      //   '.txt',
+      //   { stats, checksum },
+      //   true
+      // );
     }
   });
 };
@@ -175,7 +187,6 @@ watcher.on('ready', () => {
   console.log('Program initialized. Listening for changes...');
   watcher
     .on('add', (p, stats) => {
-      console.log(path.extname(p));
       const TARGET_DIRECTORY = p
         .split(path.sep)
         .splice(p.split(path.sep).indexOf(process.env.PARENT_DIRECTORY));
@@ -183,7 +194,7 @@ watcher.on('ready', () => {
       const ROUTE = [TARGET_DIRECTORY[1], TARGET_DIRECTORY[2]].join('/');
       const fileData = fs.readFileSync(p, 'utf-8');
       const data = {
-        path: p,
+        sentPath: p,
         PARENT_DIRECTORY: TARGET_DIRECTORY[0],
         SUB_DIRECTORY: TARGET_DIRECTORY[1],
         FOLDER: TARGET_DIRECTORY[2],
