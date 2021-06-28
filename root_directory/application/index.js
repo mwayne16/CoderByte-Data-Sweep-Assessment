@@ -1,18 +1,20 @@
-require('dotenv/config');
-const crypto = require('crypto');
-const express = require('express');
-const cors = require('cors');
-const chokidar = require('chokidar');
-const path = require('path');
-const fs = require('fs');
-const axios = require('axios');
-const { get } = require('https');
+import crypto from 'crypto';
+// import popups from 'popups';
+import express from 'express';
+import cors from 'cors';
+import chokidar from 'chokidar';
+import path from 'path';
+import fs from 'fs';
+import axios from 'axios';
+import 'dotenv/config';
+const DATE = new Date(Date.now());
+
 const CancelToken = axios.CancelToken;
 const source = CancelToken.source();
 const config = axios.create({
   timeout: 5000,
-  baseUrl: 'http://localhost:8080',
-  port: 8080,
+  baseUrl: process.env.BASE_URL,
+  port: process.env.PORT,
 
   CancelToken: source.token,
 });
@@ -20,22 +22,54 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-const PORT = process.env.PORT || 3000;
+const PORT = config.defaults.port;
 process.chdir(path.join(`../${process.env.PARENT_DIRECTORY}`));
 //Route to filewatching folder
 const watcher = chokidar.watch(process.cwd(), {
   awaitWriteFinish: true,
+  ignoreInitial: true,
 });
 const generateChecksum = (str, alg, encoding) =>
   crypto
     .createHash(alg || 'md5')
     .update(str, 'utf8')
     .digest(encoding || 'hex');
+
+// Function does weird things, avoid for now
 const moveFileLocation = (oldPath, newPath) =>
   fs.rename(oldPath, newPath, err => {
     if (err) throw err;
     console.log('File Move Successful');
   });
+// Creates file for exceptions and logs
+// Note: if file already exsists, the content will be overwritten
+
+const createFile = (filePath, extensionType, fileContent) => {
+  const stamp = DATE.toISOString().replace(/[:.]/g, '');
+  const ext = extensionType;
+  const fileName = `${stamp}${ext}`;
+
+  //Move to createFile
+  try {
+    fileName.concat(stamp, ext);
+    fs.appendFile(path.join(filePath, fileName), fileContent, err => {
+      if (err) {
+        fs.writeFile(path.join(p, fileName), fileContent, err => {
+          if (err) console.log(err);
+          console.log('File is created successfully.');
+        });
+      }
+    });
+  } catch (err) {
+    console.log(err);
+  }
+};
+
+const exceptionHandler = (errorMessage, p) => {};
+
+// data for handler not being posted to file. Possible .ext issue
+exceptionHandler('bad request there sir', '1000000/exceptions');
+
 const getUserDate = () => {
   const months = [
     'January',
@@ -58,8 +92,6 @@ const getUserDate = () => {
 const archiveFile = async ({ SUB_DIRECTORY, FOLDER, FILENAME }) => {
   const { year, month } = getUserDate();
   if (FOLDER !== 'archive') {
-    console.log(FOLDER);
-
     fs.access(
       path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
       err => {
@@ -83,7 +115,8 @@ const archiveFile = async ({ SUB_DIRECTORY, FOLDER, FILENAME }) => {
                     if (err) throw err;
                   }
                 );
-              }
+              },
+              console.log('New directory added by system')
             );
           } catch (err) {
             alert('Sorry something went wrong, please try again.');
@@ -122,13 +155,14 @@ const makeRequest = async (route, method, data) => {
   try {
     postRequest(route);
     const response = await axios({
-      baseURL: 'http://localhost:8080',
+      baseURL: process.env.BASE_URL,
       method,
       url: `/${route}/results`,
-      data,
+      data: { ...data },
     });
 
     if (response.status === 200) {
+      console.log(route, response.data);
       archiveFile(data);
     }
 
@@ -137,24 +171,30 @@ const makeRequest = async (route, method, data) => {
     console.log(err);
   }
 };
-watcher.on('change', (p, stats) => {
-  console.log(path.basename(p));
-  const TARGET_DIRECTORY = p
-    .split(path.sep)
-    .splice(p.split(path.sep).indexOf(process.env.PARENT_DIRECTORY));
-  const ROUTE = [TARGET_DIRECTORY[0], TARGET_DIRECTORY[1]].join('/');
-  const fileData = fs.readFileSync(p, 'utf-8');
-  const data = {
-    path: p,
-    PARENT_DIRECTORY: TARGET_DIRECTORY[0],
-    SUB_DIRECTORY: TARGET_DIRECTORY[1],
-    FOLDER: TARGET_DIRECTORY[2],
-    FILENAME: path.basename(p),
-    checksum: generateChecksum(fileData),
-    stats,
-  };
+watcher.on('ready', () => {
+  console.log('Program initialized. Listening for changes...');
+  watcher
+    .on('add', (p, stats) => {
+      console.log(path.extname(p));
+      const TARGET_DIRECTORY = p
+        .split(path.sep)
+        .splice(p.split(path.sep).indexOf(process.env.PARENT_DIRECTORY));
 
-  makeRequest(ROUTE, 'POST', data);
+      const ROUTE = [TARGET_DIRECTORY[1], TARGET_DIRECTORY[2]].join('/');
+      const fileData = fs.readFileSync(p, 'utf-8');
+      const data = {
+        path: p,
+        PARENT_DIRECTORY: TARGET_DIRECTORY[0],
+        SUB_DIRECTORY: TARGET_DIRECTORY[1],
+        FOLDER: TARGET_DIRECTORY[2],
+        FILENAME: path.basename(p),
+        checksum: generateChecksum(fileData),
+        stats,
+      };
+
+      makeRequest(ROUTE, 'POST', data);
+    })
+    .on('change', (p, stats) => {});
 });
 
 const watchedPaths = watcher.getWatched();
