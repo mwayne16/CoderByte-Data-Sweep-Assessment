@@ -1,3 +1,12 @@
+# To Run Application
+
+From the terminal
+
+> cd root_directory/application
+> npm start
+
+That's it.
+
 Using NodeJS create an application that will monitor a set of specific folders for new files, build an API link based on the folder location the file is in, post the file, and perform an one of two actions upon completion.
 
 # Acquire the Source

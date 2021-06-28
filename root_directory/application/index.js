@@ -44,7 +44,7 @@ const moveFileLocation = (oldPath, newPath) =>
 // Creates file for exceptions and logs
 // Note: if file already exsists, the content will be overwritten
 
-const createFile = (filePath, extensionType, fileContent) => {
+const createFile = async (filePath, extensionType, fileContent) => {
   const stamp = DATE.toISOString().replace(/[:.]/g, '');
   const ext = extensionType;
   const fileName = `${stamp}${ext}`;
