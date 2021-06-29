@@ -134,13 +134,15 @@ const postRequest = route => {
     //Compare sent checksum to system
     console.log(sentPath);
     try {
-      if (checksum !== generateChecksum(fs.readFileSync(sentPath, 'utf-8')))
+      if (checksum === generateChecksum(fs.readFileSync(sentPath, 'utf-8')))
         res.status(200).json({ status: 'success', data: { checksum } });
       else {
         moveFileLocation(
           sentPath,
           path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath))
         );
+
+        res.status(418).json({ status: 'failed', data: checksum });
         // fs.appendFile(
         //   path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath)),
         //   JSON.stringify({ stats, checksum }),
