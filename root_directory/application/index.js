@@ -30,21 +30,18 @@ const watcher = chokidar.watch(process.cwd(), {
   awaitWriteFinish: true,
   ignoreInitial: true,
 });
+
+// Used for validating requests
 const generateChecksum = (str, alg, encoding) =>
   crypto
     .createHash(alg || 'md5')
     .update(str, 'utf8')
     .digest(encoding || 'hex');
 
-// Function does weird things, avoid for now
-const moveFileLocation = (oldPath, newPath) =>
-  fs.rename(oldPath, newPath, err => {
-    if (err) throw err;
-  });
 const handleExceptions = () => null;
 
 // Creates file for exceptions and logs
-// Note: if file already exsists, the content will be overwritten
+// Note: if file already exsists, new data will be appended to exsisting
 
 const createFile = async (filePath, extensionType, fileContent) => {
   typeof fileContent === 'string'
@@ -54,22 +51,21 @@ const createFile = async (filePath, extensionType, fileContent) => {
   const ext = extensionType;
   const fileName = `${stamp}${ext}`;
 
-  //Move to createFile
   try {
     fileName.concat(stamp, ext);
     fs.appendFile(path.join(filePath, fileName), fileContent, err => {
       if (err) {
-        fs.writeFile(path.join(p, fileName), fileContent, err => {
-          if (err) console.log(err);
-          console.log('File is created successfully.');
-        });
+        fs.writeFileSync(path.join(p, fileName), fileContent);
       }
     });
   } catch (err) {
-    console.log(err);
+    console.log(err, 'from createFile');
   }
 };
-
+const moveFileLocation = (oldPath, newPath) =>
+  fs.rename(oldPath, newPath, err => {
+    if (err) createFile(newPath, path.extname(newPath));
+  });
 const getUserDate = () => {
   const months = [
     'January',
@@ -91,76 +87,77 @@ const getUserDate = () => {
 };
 const archiveFile = async ({ SUB_DIRECTORY, FOLDER, FILENAME }) => {
   const { year, month } = getUserDate();
-  if (FOLDER !== 'archive') {
-    fs.access(
-      path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
-      err => {
-        if (err) {
-          try {
-            fs.mkdir(
-              path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
-              { recursive: true },
-              err => {
-                if (err)
-                  moveFileLocation(
-                    path.join(SUB_DIRECTORY, FOLDER, FILENAME),
-                    path.join(
-                      SUB_DIRECTORY,
-                      'archive',
-                      year.toString(),
-                      month,
-                      FILENAME
-                    )
-                  );
-              },
-              console.log('New directory added by system')
-            );
-          } catch (err) {
-            alert('Sorry something went wrong, please try again.');
-          }
+
+  //look to see if file exsists
+  fs.access(
+    path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
+    err => {
+      // if not create the directory and store file
+      if (err) {
+        try {
+          fs.mkdir(
+            path.join(SUB_DIRECTORY, 'archive', year.toString(), month),
+            { recursive: true },
+            err => {
+              if (err)
+                moveFileLocation(
+                  path.join(SUB_DIRECTORY, FOLDER, FILENAME),
+                  path.join(
+                    SUB_DIRECTORY,
+                    'archive',
+                    year.toString(),
+                    month,
+                    FILENAME
+                  )
+                );
+            },
+            console.log('New directory added by system')
+          );
+        } catch (err) {
+          alert('Sorry something went wrong, please try again.');
         }
-        moveFileLocation(
-          path.join(SUB_DIRECTORY, FOLDER, FILENAME),
-          path.join(SUB_DIRECTORY, 'archive', year.toString(), month, FILENAME)
-        );
       }
-    );
-  }
+      // if it does exsist - archive file
+      moveFileLocation(
+        path.join(SUB_DIRECTORY, FOLDER, FILENAME),
+        path.join(SUB_DIRECTORY, 'archive', year.toString(), month, FILENAME)
+      );
+    }
+  );
 };
+const validateFile = (path, requestType, data) => {};
 const postRequest = route => {
   app.post(`/${route}/results`, async (req, res) => {
     const { sentPath, PARENT_DIRECTORY, SUB_DIRECTORY, checksum, stats } =
       req.body;
     //Compare sent checksum to system
-    console.log(sentPath);
+    const acceptedType = process.env.ACCEPTED_FILE_TYPES.split(',');
     try {
-      if (checksum === generateChecksum(fs.readFileSync(sentPath, 'utf-8')))
-        res.status(200).json({ status: 'success', data: { checksum } });
-      else {
+      if (checksum === generateChecksum(fs.readFileSync(sentPath, 'utf-8'))) {
+        if (acceptedType.includes(path.extname(sentPath))) {
+          console.log(
+            true,
+            typeof path.extname(sentPath),
+            acceptedType[1],
+            path.extname(sentPath),
+            acceptedType.includes(path.extname(sentPath)),
+            acceptedType
+          );
+        } else {
+          throw 'extension invalid';
+        }
+        if (archiveFile(req.body))
+          res.status(200).json({ status: 'success', data: { checksum } });
+      } else {
         moveFileLocation(
           sentPath,
           path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath))
         );
-
         res.status(418).json({ status: 'failed', data: checksum });
-        // fs.appendFile(
-        //   path.join(SUB_DIRECTORY, 'exceptions', path.basename(sentPath)),
-        //   JSON.stringify({ stats, checksum }),
-        //   err => {
-        //     if (err) console.log(err);
-        //   }
-        // );
       }
     } catch (err) {
       console.log(err);
-      // res.status(404).json({ status: 'fail', data: { err } });
-
-      // createFile(
-      //   `${SUB_DIRECTORY}/exceptions`,
-      //   '.txt',
-      //   { stats, checksum },
-      //   true
-      // );
+      createFile(`${SUB_DIRECTORY}/exceptions`, '.txt', err);
     }
   });
 };
@@ -177,7 +174,6 @@ const makeRequest = async (route, method, data) => {
 
     if (response.status === 200) {
       console.log(route, response.data);
-      archiveFile(data);
     }
 
     return response.data;
@@ -189,6 +185,7 @@ watcher.on('ready', () => {
   console.log('Program initialized. Listening for changes...');
   watcher
     .on('add', (p, stats) => {
+      console.log(path.extname(p), 'from watcher');
       const TARGET_DIRECTORY = p
         .split(path.sep)
         .splice(p.split(path.sep).indexOf(process.env.PARENT_DIRECTORY));
